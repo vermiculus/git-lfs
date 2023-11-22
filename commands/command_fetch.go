@@ -3,6 +3,7 @@ package commands
 import (
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/git-lfs/git-lfs/v3/filepathfilter"
@@ -80,7 +81,14 @@ func fetchCommand(cmd *cobra.Command, args []string) {
 			for _, ref := range refs {
 				refShas = append(refShas, ref.Sha)
 			}
-			success = fetchRefs(refShas)
+
+			splitfn := func(c rune) bool {
+				return c == ','
+			}
+
+			var excludeRefs = strings.FieldsFunc(os.Getenv("JANKY_EXCLUDE_REFS"), splitfn)
+
+			success = fetchRefs(refShas, excludeRefs)
 		} else {
 			success = fetchAll()
 		}
@@ -148,7 +156,7 @@ func fetchRef(ref string, filter *filepathfilter.Filter) bool {
 	return fetchAndReportToChan(pointers, filter, nil)
 }
 
-func pointersToFetchForRefs(refs []string) ([]*lfs.WrappedPointer, error) {
+func pointersToFetchForRefs(refs []string, excludeRefs []string) ([]*lfs.WrappedPointer, error) {
 	// This could be a long process so use the chan version & report progress
 	logger := tasklog.NewLogger(OutputWriter,
 		tasklog.ForceProgress(cfg.ForceProgress()),
@@ -175,15 +183,15 @@ func pointersToFetchForRefs(refs []string) ([]*lfs.WrappedPointer, error) {
 		pointers = append(pointers, p)
 	})
 
-	if err := tempgitscanner.ScanRefs(refs, nil, nil); err != nil {
+	if err := tempgitscanner.ScanRefs(refs, excludeRefs, nil); err != nil {
 		return nil, err
 	}
 
 	return pointers, multiErr
 }
 
-func fetchRefs(refs []string) bool {
-	pointers, err := pointersToFetchForRefs(refs)
+func fetchRefs(refs []string, excludeRefs []string) bool {
+	pointers, err := pointersToFetchForRefs(refs, excludeRefs)
 	if err != nil {
 		Panic(err, tr.Tr.Get("Could not scan for Git LFS files"))
 	}
